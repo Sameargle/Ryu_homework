@@ -12,7 +12,7 @@ from operator import attrgetter
 import re
 
 
-class ryu_topodiscover(app_manager.RyuApp):
+class ryu_shortestPathRouting(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     stack:list
     
@@ -21,7 +21,7 @@ class ryu_topodiscover(app_manager.RyuApp):
 
 
     def __init__(self, *args, **kwargs):
-        super(ryu_topodiscover, self).__init__(*args, **kwargs)
+        super(ryu_shortestPathRouting, self).__init__(*args, **kwargs)
         
         self.stack=[]
         #self.datapathlist:Topo=[0,0,0,0,0,0,0,0,0,0]
@@ -121,6 +121,7 @@ class ryu_topodiscover(app_manager.RyuApp):
         datapath = msg.datapath
         port = msg.match['in_port']
         pkt = packet.Packet(data=msg.data) 
+        print('packetin')
  
         pkt_ethernet = pkt.get_protocol(ethernet.ethernet)
         if not pkt_ethernet:
@@ -129,9 +130,12 @@ class ryu_topodiscover(app_manager.RyuApp):
         pkt_lldp = pkt.get_protocol(lldp.lldp)
         if pkt_lldp:
             self.handle_lldp(datapath, port, pkt_ethernet, pkt_lldp)
+        
         pkt_arp = pkt.get_protocol(arp.arp)
         if pkt_arp:
+            print('get a arp packet')
             self.handle_arp(datapath, port ,pkt_ethernet, pkt_arp)
+            
     
     def handle_lldp(self, datapath, port, pkt_lldp):
 
@@ -140,24 +144,41 @@ class ryu_topodiscover(app_manager.RyuApp):
         self.datapathlist[int(bytes.decode(pkt_lldp.tlvs[0].chassis_id,encoding='utf-8'))-1].addport(int(bytes.decode(pkt_lldp.tlvs[1].port_id,encoding="utf-8")),datapath.id)
 
     def handle_arp(self, datapath, pkt_arp):
+        parser = datapath.ofproto_parser
         src = pkt_arp.src_ip
+        dst = pkt_arp.dst_ip
         src = re.search('\d+\Z',src).group()   #get ip host(class c)
+        dst = re.search('\d+\Z',dst).group()
+        self.setFlowEntry(src,dst,parser)
 
 
         return
     def setFlowEntry(self,src,dst,parser):
-        match = parser.OFPMatch(in_port=1,eth_type=0x0806, arp_spa='10.0.0.' + src, arp_tpa='10.0.0.'+dst)
+        arptodstmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.' + src, arp_tpa='10.0.0.'+dst)
+        arptosrcmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.' + dst, arp_tpa='10.0.0.'+src)
+        pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.'+dst)
+        pkttosrcmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.'+src)
         
         self.dijk_routing(src,dst)
-        pathcount = len(self.path)#need some process to choose which path
-        step = len(self.path[0])
+        
+        step = len(self.path[dst])
         count = 0
-        for i in self.path[0]:
-            if count+1<=step: 
-                action = [parser.OFPActionOutput(port=self.searchPort(self.datapathlist[i],i[count+1]))]
+        for i in self.path[dst]:
+            if count+1<step: 
+                action = [parser.OFPActionOutput(port=self.serachSwitchWhichPort(self.datapathlist[i],i[count+1]))]
             else:
                 action = [parser.OFPActionOutput(port=1)]
-            self.add_flow(self.dplist[i+1],5,match,action)
+            self.add_flow(self.dplist[i+1],5,arptodstmatch,action)
+            self.add_flow(self.dplist[i+1],4,pkttodstmatch,action)
+
+            if count==0:
+                action = [parser.OFPActionOutput(port=1)]
+            else:
+                action = [parser.OFPActionOutput(port=self.serachSwitchWhichPort(self.datapathlist[i],i[count-1]))]
+            self.add_flow(self.dplist[i+1],5,arptosrcmatch,action)
+            self.add_flow(self.dplist[i+1],4,pkttosrcmatch,action)
+
+
             count +=1
                 
                 
@@ -169,6 +190,13 @@ class ryu_topodiscover(app_manager.RyuApp):
             portlist.append(v)
         
         return portlist
+    
+    def serachSwitchWhichPort(self,Topo,switch):
+        for k,v in Topo.port.items():
+            if v==switch:
+                return k
+        
+        return None
         
         
 
@@ -212,6 +240,7 @@ class ryu_topodiscover(app_manager.RyuApp):
 
         return
     def initPath(self,start):
+        self.path.clear()
         self.path=[[]for _ in range(0,10)]
         
         startnext = self.searchPort(self.datapathlist[start])
@@ -286,8 +315,9 @@ class ryu_topodiscover(app_manager.RyuApp):
             self.display(self.datapathlist)
         '''
         hub.sleep(5)
+        print('Ready to ping')
         
-        self.dijk_routing(0,2)
+        
         
         
     
