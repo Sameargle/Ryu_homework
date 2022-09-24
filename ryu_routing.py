@@ -14,7 +14,7 @@ import re
 
 class ryu_shortestPathRouting(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
-    stack:list
+    
     
     
 
@@ -105,6 +105,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
 
         if datapath not in self.dplist:
             self.dplist[datapath.id]=datapath
+            
         
     
     def add_flow(self, datapath, priority, match, actions, buff_id=None):
@@ -121,8 +122,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         datapath = msg.datapath
         port = msg.match['in_port']
         pkt = packet.Packet(data=msg.data) 
-        print('packetin')
- 
+        
         pkt_ethernet = pkt.get_protocol(ethernet.ethernet)
         if not pkt_ethernet:
             return
@@ -133,8 +133,9 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         
         pkt_arp = pkt.get_protocol(arp.arp)
         if pkt_arp:
-            print('get a arp packet')
-            self.handle_arp(datapath, port ,pkt_ethernet, pkt_arp)
+            self.logger.info('arp PackIn')
+ 
+            self.handle_arp(datapath, pkt_arp)
             
     
     def handle_lldp(self, datapath, port, pkt_lldp):
@@ -147,23 +148,24 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         parser = datapath.ofproto_parser
         src = pkt_arp.src_ip
         dst = pkt_arp.dst_ip
-        src = re.search('\d+\Z',src).group()   #get ip host(class c)
-        dst = re.search('\d+\Z',dst).group()
+        src = re.search('\d\Z',src).group()   #get ip host(class c)
+        dst = re.search('\d\Z',dst).group()
+        
         self.setFlowEntry(src,dst,parser)
 
 
         return
     def setFlowEntry(self,src,dst,parser):
-        arptodstmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.' + src, arp_tpa='10.0.0.'+dst)
-        arptosrcmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.' + dst, arp_tpa='10.0.0.'+src)
-        pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.'+dst)
-        pkttosrcmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.'+src)
+        arptodstmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + src, arp_tpa='10.0.0.1'+dst)
+        arptosrcmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + dst, arp_tpa='10.0.0.1'+src)
+        pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.1'+dst)
+        pkttosrcmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.1'+src)
         
-        self.dijk_routing(src,dst)
+        self.dijk_routing(int(src),int(dst))
         
-        step = len(self.path[dst])
+        step = len(self.path[int(dst)])
         count = 0
-        for i in self.path[dst]:
+        for i in self.path[int(dst)]:
             if count+1<step: 
                 action = [parser.OFPActionOutput(port=self.serachSwitchWhichPort(self.datapathlist[i],i[count+1]))]
             else:
@@ -285,20 +287,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         
 
     
-    @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
-    def packet_in_handler(self, ev):
-        msg = ev.msg
-        datapath = msg.datapath
-        port = msg.match['in_port']
-        pkt = packet.Packet(data=msg.data) 
- 
-        pkt_ethernet = pkt.get_protocol(ethernet.ethernet)
-        if not pkt_ethernet:
-            return
- 
-        pkt_lldp = pkt.get_protocol(lldp.lldp)
-        if pkt_lldp:
-            self.handle_lldp(datapath, port, pkt_ethernet, pkt_lldp)
+   
     
     def handle_lldp(self, datapath, port, pkt_ethernet, pkt_lldp):
 
@@ -307,15 +296,15 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         self.datapathlist[int(bytes.decode(pkt_lldp.tlvs[0].chassis_id,encoding='utf-8'))-1].addport(int(bytes.decode(pkt_lldp.tlvs[1].port_id,encoding="utf-8")),datapath.id)
     
     def monitor(self):
-        '''while True:
-            for dp in self.dplist.values():
-                self.send_port_stats_request(dp)
+        while True:
+            
+                
         
             hub.sleep(5)
-            self.display(self.datapathlist)
-        '''
-        hub.sleep(5)
-        print('Ready to ping')
+            #self.display(self.datapathlist)
+            
+        
+        
         
         
         
