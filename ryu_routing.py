@@ -150,35 +150,47 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         dst = pkt_arp.dst_ip
         src = re.search('\d\Z',src).group()   #get ip host(class c)
         dst = re.search('\d\Z',dst).group()
-        
+        print('get a arp ',src,' to ',dst)
         self.setFlowEntry(src,dst,parser)
 
 
         return
     def setFlowEntry(self,src,dst,parser):
+        
         arptodstmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + src, arp_tpa='10.0.0.1'+dst)
         arptosrcmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + dst, arp_tpa='10.0.0.1'+src)
         pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.1'+dst)
         pkttosrcmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.1'+src)
-        
         self.dijk_routing(int(src),int(dst))
         
         step = len(self.path[int(dst)])
+        print('path = ',self.path[int(dst)])
         count = 0
         for i in self.path[int(dst)]:
             if count+1<step: 
-                action = [parser.OFPActionOutput(port=self.serachSwitchWhichPort(self.datapathlist[i],i[count+1]))]
+                
+                outport = self.serachSwitchWhichPort(self.datapathlist[i-1],self.path[int(dst)][count+1])
+                if outport==None:
+                    print('port error')
+                else:
+                    action = [parser.OFPActionOutput(port=outport)]
+                
             else:
                 action = [parser.OFPActionOutput(port=1)]
-            self.add_flow(self.dplist[i+1],5,arptodstmatch,action)
-            self.add_flow(self.dplist[i+1],4,pkttodstmatch,action)
+            self.add_flow(self.dplist[i],5,arptodstmatch,action)
+            self.add_flow(self.dplist[i],4,pkttodstmatch,action)
 
             if count==0:
                 action = [parser.OFPActionOutput(port=1)]
             else:
-                action = [parser.OFPActionOutput(port=self.serachSwitchWhichPort(self.datapathlist[i],i[count-1]))]
-            self.add_flow(self.dplist[i+1],5,arptosrcmatch,action)
-            self.add_flow(self.dplist[i+1],4,pkttosrcmatch,action)
+                
+                outport = self.serachSwitchWhichPort(self.datapathlist[i-1],self.path[int(dst)][count-1])
+                if outport == None:
+                    print('port error')
+                else:
+                    action = [parser.OFPActionOutput(port=outport)]
+            self.add_flow(self.dplist[i],5,arptosrcmatch,action)
+            self.add_flow(self.dplist[i],4,pkttosrcmatch,action)
 
 
             count +=1
@@ -204,12 +216,12 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
 
 
     def dijk_routing(self,start,end):
-        #if not self.disarray:
-        #   self.disarray=self.dijk_array()
-        self.disarray=[0,9,9,9,1,1,9,9,9,9]
+        self.disarray.clear()
+        self.disarray=self.dijk_array(start)
+        print('start:',start,'distance',self.disarray)
         visited=[0,0,0,0,0,0,0,0,0,0]
         self.initPath(start)
-        print(self.path)
+        
         visited[start]=1
         while(True):
             if visited[end] !=0:
@@ -224,23 +236,19 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
 
             visited[next] = 1
             
-            print('visted point =',next+1)
+            #print('visted point =',next+1)
             portlist = self.searchPort(self.datapathlist[next])
             for i in portlist:
                 if self.disarray[i-1] > self.disarray[next]+1:
                     self.disarray[i-1]=self.disarray[next]+1
                     self.path[i-1]=self.path[next].copy()
                     self.path[i-1].append(i)
-                    print('update',i,'distance=',self.disarray[next]+1)
-            
-        
-        print(self.disarray,self.path)
-        
+                    #print('update',i,'distance=',self.disarray[next]+1)
         
 
 
 
-        return
+        
     def initPath(self,start):
         self.path.clear()
         self.path=[[]for _ in range(0,10)]
@@ -254,18 +262,17 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
     
 
 
-    def dijk_array(self):
+    def dijk_array(self,start):
         maxdp = len(self.dplist)
         
-        dijkarray=[[9 for _ in range(maxdp) ] for _ in range(maxdp)]
+        dijkarray=[9 for _ in range(maxdp)]
         
-        for i in self.datapathlist:
-            dijkarray[i.switch-1][i.switch-1]=0
+        dijkarray[start]=0
             
-            for k,v in i.port.items():
-                
-                if v!=0:
-                    dijkarray[i.switch-1][v-1]=1
+        for k,v in self.datapathlist[start].port.items():
+            
+            if v!=0:
+                dijkarray[v-1]=1
 
         return dijkarray
     
