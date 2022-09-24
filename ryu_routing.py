@@ -24,13 +24,13 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         super(ryu_shortestPathRouting, self).__init__(*args, **kwargs)
         
         self.stack=[]
-        #self.datapathlist:Topo=[0,0,0,0,0,0,0,0,0,0]
-        self.datapathlist:Topo=[]
+        self.datapathlist:Topo=[0,0,0,0,0,0,0,0,0,0]
+        
         self.dplist={}
         self.path:list=[]
         self.disarray=[]
         
-        
+        '''
         temp=Topo(1)
         
         temp.addport(2,5)
@@ -79,7 +79,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         temp.addport(1,6)
         temp.addport(2,8)
         self.datapathlist.append(temp)
-        
+        '''
         
         self.monitor_thread = hub.spawn(self.monitor)
         
@@ -129,7 +129,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
  
         pkt_lldp = pkt.get_protocol(lldp.lldp)
         if pkt_lldp:
-            self.handle_lldp(datapath, port, pkt_ethernet, pkt_lldp)
+            self.handle_lldp(datapath, pkt_lldp)
         
         pkt_arp = pkt.get_protocol(arp.arp)
         if pkt_arp:
@@ -138,7 +138,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
             self.handle_arp(datapath, pkt_arp)
             
     
-    def handle_lldp(self, datapath, port, pkt_lldp):
+    def handle_lldp(self, datapath,pkt_lldp):
 
         #print(pkt_lldp.tlvs[1].port_id[0]-48)
         #print(int(bytes.decode(pkt_lldp.tlvs[0].chassis_id,encoding='utf-8')))
@@ -276,37 +276,56 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
 
         return dijkarray
     
-    def display(self,array):
-        for i in array:
-            if i.port:
-                self.logger.info('-----  -----  --------')
-                self.logger.info('dpid   port   neighbor')
-                for k,v in i.port.items():
-                    self.logger.info('%05d %05d %7s',i.switch,k,v)
-                self.logger.info('----------------------')
-        '''
-        for i in range(0,10):
-            for j in range(0,10):
-                self.logger.info('%d')
-        '''
-
-   
+    def send_port_stats_request(self, datapath):
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+        req = ofp_parser.OFPPortDescStatsRequest(datapath, 0, ofp.OFPP_ANY)
+        datapath.send_msg(req)
+    
+    @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
+    def port_stats_reply_handler(self, ev):
+        msg = ev.msg
+        datapath = msg.datapath
+        ofproto = datapath.ofproto
+       
+ 
+       
         
+        temp = Topo(datapath.id)
+        
+        self.datapathlist[datapath.id-1]=temp
+        for stat in ev.msg.body:
+            if stat.port_no < ofproto.OFPP_MAX:
+                temp.addport(stat.port_no,0)
+                self.send_lldp_packet(datapath, stat.port_no, stat.hw_addr)
+    
+    def send_lldp_packet(self, datapath, port_no, hw_addr):
+        ofp = datapath.ofproto
+        pkt = packet.Packet()
+        pkt.add_protocol(ethernet.ethernet(ethertype=ether_types.ETH_TYPE_LLDP,src=hw_addr ,dst=lldp.LLDP_MAC_NEAREST_BRIDGE))
+ 
+        tlv_chassis_id = lldp.ChassisID(subtype=lldp.ChassisID.SUB_LOCALLY_ASSIGNED, chassis_id=str(datapath.id).encode('utf-8'))
+        tlv_port_id = lldp.PortID(subtype=lldp.PortID.SUB_LOCALLY_ASSIGNED, port_id=str(port_no).encode('utf-8'))
+        tlv_ttl = lldp.TTL(ttl=10)
+        tlv_end = lldp.End()
+        tlvs = (tlv_chassis_id, tlv_port_id, tlv_ttl, tlv_end)
+        pkt.add_protocol(lldp.lldp(tlvs))
+        pkt.serialize()
+ 
+        data = pkt.data
+        parser = datapath.ofproto_parser
+        actions = [parser.OFPActionOutput(port=port_no)]
+        out = parser.OFPPacketOut(datapath=datapath, buffer_id=ofp.OFP_NO_BUFFER, in_port=ofp.OFPP_CONTROLLER, actions=actions, data=data)
+        datapath.send_msg(out)
 
-    
-   
-    
-    def handle_lldp(self, datapath, port, pkt_ethernet, pkt_lldp):
-
-        #print(pkt_lldp.tlvs[1].port_id[0]-48)
-        #print(int(bytes.decode(pkt_lldp.tlvs[0].chassis_id,encoding='utf-8')))
-        self.datapathlist[int(bytes.decode(pkt_lldp.tlvs[0].chassis_id,encoding='utf-8'))-1].addport(int(bytes.decode(pkt_lldp.tlvs[1].port_id,encoding="utf-8")),datapath.id)
-    
     def monitor(self):
         while True:
-            
-                
-        
+            if len(self.dplist)==10:
+                for dp in self.dplist.values():
+                    self.send_port_stats_request(dp)
+                hub.sleep(5)    
+                print('Topology Finish')
+                break
             hub.sleep(5)
             #self.display(self.datapathlist)
             
