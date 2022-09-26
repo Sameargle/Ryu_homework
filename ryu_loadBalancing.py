@@ -226,10 +226,10 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         while(True):
             if visited[end] !=0:
                 break
-            min = 9
+            min = 999
             count=0
             for i in self.disarray:
-                if i!=0 and i<min and visited[count]!=1:
+                if i!=-1 and i<min and visited[count]!=1:
                     min = i
                     next = count
                 count +=1
@@ -265,13 +265,13 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
     def dijk_array(self,start):
         maxdp = len(self.dplist)
         
-        dijkarray=[9 for _ in range(maxdp)]
+        dijkarray=[99 for _ in range(maxdp)]
         
-        dijkarray[start]=0
+        dijkarray[start]=-1
             
         for k,v in self.datapathlist[start].port.items():
             
-            if v!=0:
+            if v!=-1:
                 dijkarray[v-1]=self.datapathlist[start].portcost[k]
 
         return dijkarray
@@ -283,7 +283,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         datapath.send_msg(req)
     
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
-    def port_stats_reply_handler(self, ev):
+    def port_Descstats_reply_handler(self, ev):
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
@@ -344,8 +344,12 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                         stat.rx_frame_err, stat.rx_over_err,
                         stat.rx_crc_err, stat.collisions,
                         stat.duration_sec, stat.duration_nsec))
-            self.datapathlist[dpid].modportcost(stat.port_no,stat.tx_bytes/1250000) #125M total bandwidth
-        self.logger.debug('PortStats: %s', ports)
+            if stat.port_no<10:
+                if dpid==1 or dpid==2 or dpid==3 or dpid==4:
+                    if stat.port_no !=1:
+                        self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/12500000) #125M total bandwidth
+                else:
+                    self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/12500000)
 
 
     def monitor(self):
