@@ -135,7 +135,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         if pkt_arp:
             self.logger.info('arp PackIn')
  
-            self.handle_arp(datapath, pkt_arp)
+            #self.handle_arp(datapath, pkt_arp)
             
     
     def handle_lldp(self, datapath,pkt_lldp):
@@ -236,14 +236,14 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
 
             visited[next] = 1
             
-            #print('visted point =',next+1)
+            print('visted point =',next+1)
             portlist = self.searchPort(self.datapathlist[next])
             for j,i in portlist.items():
                 if self.disarray[i-1] > self.disarray[next]+self.datapathlist[next].portcost[j]:
                     self.disarray[i-1]=self.disarray[next]+self.datapathlist[next].portcost[j]
                     self.path[i-1]=self.path[next].copy()
                     self.path[i-1].append(i)
-                    #print('update',i,'distance=',self.disarray[next]+1)
+                    print('update',i,'distance=',self.disarray[next]+1)
         
 
 
@@ -328,6 +328,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
     def port_stats_reply_handler(self, ev):
         ports = []
         dpid = ev.msg.datapath.id
+        print('dpid: ',dpid)
         for stat in ev.msg.body:
             ports.append('port_no=%d '
                         'rx_packets=%d tx_packets=%d '
@@ -345,11 +346,13 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                         stat.rx_crc_err, stat.collisions,
                         stat.duration_sec, stat.duration_nsec))
             if stat.port_no<10:
+                print('port: ',stat.port_no, ' txByte: ',stat.tx_bytes/62500, 'pastTX: ',self.datapathlist[dpid-1].portcost[stat.port_no])
                 if dpid==1 or dpid==2 or dpid==3 or dpid==4:
                     if stat.port_no !=1:
-                        self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/12500000) #125M total bandwidth
+                        self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/62500) #125M total bandwidth
                 else:
-                    self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/12500000)
+                    self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/62500)
+                
 
 
     def monitor(self):
@@ -365,7 +368,11 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
             for dp in self.dplist.values():
                 self.sned_port_txbyte_req(dp)
             hub.sleep(5)
-
+            '''for i in self.datapathlist:
+                print('dpid:',i.switch)
+                for k,v in i.portcost.items():
+                    print('port ',k,' cost ',v)
+                '''
             
         
         
@@ -392,4 +399,4 @@ class Topo:
         if self.port[outport]==0:
             self.port[outport]=nextdp
     def modportcost(self,port,cost):
-        self.portcost[port]=cost - self.portcost[port]
+        self.portcost[port]=int(cost - self.portcost[port])
