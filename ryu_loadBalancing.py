@@ -242,6 +242,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
             print('visted point =',next+1)
             portlist = self.searchPort(self.datapathlist[next])
             for j,i in portlist.items():
+                
                 if self.disarray[i-1] > self.disarray[next]+self.datapathlist[next].portcost[j]:
                     self.disarray[i-1]=self.disarray[next]+self.datapathlist[next].portcost[j]
                     self.path[i-1]=self.path[next].copy()
@@ -263,7 +264,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         for j,i in startnext.items():
             self.path[i-1].append(start+1)
             self.path[i-1].append(i)
-        print('rough path',self.path)
+        
         
     
 
@@ -277,7 +278,9 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
             
         for k,v in self.datapathlist[start].port.items():
             if v!=0:
-                dijkarray[v-1]=self.datapathlist[start].portcost[k]
+                cost = self.datapathlist[start].portcost[k]
+                
+                dijkarray[v-1]= cost
 
         return dijkarray
     
@@ -405,7 +408,6 @@ class Topo:
             self.port[outport]=nextdp
     def modportcost(self,port,cost):
         temp = int(cost - self.portcost[port])
-        if temp>0:
-            self.portcost[port]=int(cost - self.portcost[port])
-        else:
-            self.portcost[port]=1
+        
+        self.portcost[port]=temp
+        
