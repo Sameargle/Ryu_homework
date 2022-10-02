@@ -1,3 +1,4 @@
+from pickle import NONE
 import re
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -82,6 +83,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         '''
         
         self.monitor_thread = hub.spawn(self.monitor)
+        self.OFPParser = NONE
         
         
         
@@ -102,6 +104,8 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         self.add_flow(datapath, 0, match, actions)
         '''
         
+        if self.OFPParser == NONE:
+            self.OFPParser = parser
 
         if datapath not in self.dplist:
             self.dplist[datapath.id]=datapath
@@ -150,13 +154,13 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         dst = pkt_arp.dst_ip
         src = re.search('\d\Z',src).group()   #get ip host(class c)
         dst = re.search('\d\Z',dst).group()
-        print('get a arp ',src,' to ',dst)
+        
         self.setFlowEntry(src,dst,parser)
 
 
         return
     def setFlowEntry(self,src,dst,parser):
-        
+        print('Routing ','10.0.0.1'+src,' to ','10.0.0.1'+dst)
         arptodstmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + src, arp_tpa='10.0.0.1'+dst)
         arptosrcmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + dst, arp_tpa='10.0.0.1'+src)
         pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.1'+dst)
@@ -221,7 +225,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
     def dijk_routing(self,start,end):
         self.disarray.clear()
         self.disarray=self.dijk_array(start)
-        print('start:',start,'distance',self.disarray)
+        #print('start:',start,'distance',self.disarray)
         visited=[0,0,0,0,0,0,0,0,0,0]
         self.initPath(start)
         
@@ -239,7 +243,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
 
             visited[next] = 1
             
-            print('visted point =',next+1)
+            #print('visted point =',next+1)
             portlist = self.searchPort(self.datapathlist[next])
             for j,i in portlist.items():
                 
@@ -247,8 +251,8 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                     self.disarray[i-1]=self.disarray[next]+self.datapathlist[next].portcost[j]
                     self.path[i-1]=self.path[next].copy()
                     self.path[i-1].append(i)
-                    print('update',i,'distance=',self.disarray[next]+1)
-                    print('PATH: ',self.path)
+                    #print('update',i,'distance=',self.disarray[next]+1)
+                    
         
 
 
@@ -259,7 +263,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         self.path=[[]for _ in range(0,10)]
         
         startnext = self.searchPort(self.datapathlist[start])
-        print('startnext: ',startnext)
+        
         self.path[start]=[start]
         for j,i in startnext.items():
             self.path[i-1].append(start+1)
@@ -336,7 +340,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
     def port_stats_reply_handler(self, ev):
         ports = []
         dpid = ev.msg.datapath.id
-        print('dpid: ',dpid)
+        #print('dpid: ',dpid)
         for stat in ev.msg.body:
             ports.append('port_no=%d '
                         'rx_packets=%d tx_packets=%d '
@@ -354,14 +358,21 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                         stat.rx_crc_err, stat.collisions,
                         stat.duration_sec, stat.duration_nsec))
             if stat.port_no<10:
-                print('port: ',stat.port_no, ' txByte: ',stat.tx_bytes/62500, 'pastTX: ',self.datapathlist[dpid-1].portcost[stat.port_no])
+                #print('port: ',stat.port_no, ' txByte: ',stat.tx_bytes/62500, 'pastTX: ',self.datapathlist[dpid-1].portcost[stat.port_no])
                 if dpid==1 or dpid==2 or dpid==3 or dpid==4:
                     if stat.port_no !=1:
                         self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/62500) #125M total bandwidth
                 else:
                     self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/62500)
                 
-
+    def routing_host(self):
+        self.setFlowEntry('0','1',self.OFPParser)
+        self.setFlowEntry('0','2',self.OFPParser)
+        self.setFlowEntry('0','3',self.OFPParser)
+        self.setFlowEntry('1','2',self.OFPParser)
+        self.setFlowEntry('1','3',self.OFPParser)
+        self.setFlowEntry('2','3',self.OFPParser)
+        print('----------------------')
 
     def monitor(self):
         while True:
@@ -372,10 +383,12 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                 print('Topology Finish')
                 break
             hub.sleep(5)
+        self.routing_host()
         while True:
             for dp in self.dplist.values():
                 self.sned_port_txbyte_req(dp)
             hub.sleep(5)
+            self.routing_host()
             '''for i in self.datapathlist:
                 print('dpid:',i.switch)
                 for k,v in i.portcost.items():
