@@ -342,21 +342,6 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         dpid = ev.msg.datapath.id
         #print('dpid: ',dpid)
         for stat in ev.msg.body:
-            ports.append('port_no=%d '
-                        'rx_packets=%d tx_packets=%d '
-                        'rx_bytes=%d tx_bytes=%d '
-                        'rx_dropped=%d tx_dropped=%d '
-                        'rx_errors=%d tx_errors=%d '
-                        'rx_frame_err=%d rx_over_err=%d rx_crc_err=%d '
-                        'collisions=%d duration_sec=%d duration_nsec=%d' %
-                        (stat.port_no,
-                        stat.rx_packets, stat.tx_packets,
-                        stat.rx_bytes, stat.tx_bytes,
-                        stat.rx_dropped, stat.tx_dropped,
-                        stat.rx_errors, stat.tx_errors,
-                        stat.rx_frame_err, stat.rx_over_err,
-                        stat.rx_crc_err, stat.collisions,
-                        stat.duration_sec, stat.duration_nsec))
             if stat.port_no<10:
                 #print('port: ',stat.port_no, ' txByte: ',stat.tx_bytes/62500, 'pastTX: ',self.datapathlist[dpid-1].portcost[stat.port_no])
                 if dpid==1 or dpid==2 or dpid==3 or dpid==4:
@@ -383,12 +368,12 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                 print('Topology Finish')
                 break
             hub.sleep(5)
-        self.routing_host()
+        
         while True:
             for dp in self.dplist.values():
                 self.sned_port_txbyte_req(dp)
             hub.sleep(5)
-            self.routing_host()
+            
             '''for i in self.datapathlist:
                 print('dpid:',i.switch)
                 for k,v in i.portcost.items():
@@ -421,6 +406,5 @@ class Topo:
             self.port[outport]=nextdp
     def modportcost(self,port,cost):
         temp = int(cost - self.portcost[port])
-        
         self.portcost[port]=temp
         
