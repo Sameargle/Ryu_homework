@@ -6,7 +6,7 @@ from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cl
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet, ethernet, ether_types
 
-from ryu.lib.packet import ethernet, ether_types,lldp,packet,arp
+from ryu.lib.packet import ethernet, ether_types,lldp,packet,arp,ipv4,udp,tcp
 from ryu import utils
 from ryu.lib import hub
 from operator import attrgetter
@@ -137,9 +137,13 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         
         pkt_arp = pkt.get_protocol(arp.arp)
         if pkt_arp:
-            self.logger.info('arp PackIn')
+            self.logger.info('arp PacketIn')
  
             self.handle_arp(datapath, pkt_arp)
+
+        pkt_ip = pkt.get_protocol(ipv4.ipv4)
+        if pkt_ip:
+            self.handle_ip(datapath, pkt_ip, pkt)
             
     
     def handle_lldp(self, datapath,pkt_lldp):
@@ -155,16 +159,40 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         src = re.search('\d\Z',src).group()   #get ip host(class c)
         dst = re.search('\d\Z',dst).group()
         
-        self.setFlowEntry(src,dst,parser)
+        self.setFlowEntry(src,dst,parser,'arp')
 
-
-        return
-    def setFlowEntry(self,src,dst,parser):
+    def handle_ip(self,datapath, pkt_ip, pkt):
+        src = pkt_ip.src
+        dst = pkt_ip.dst
+        src = re.search('\d\Z',src).group()
+        dst = re.search('\d\Z',dst).group()
+        pkt_udp = pkt.get_protocol(udp.udp)
+        
+        if pkt_udp:
+            print('Udp PacketIn')
+            srcport = pkt_udp.src_port
+            dstport = pkt_udp.dst_port
+            self.setFlowEntry(src,dst,self.OFPParser,'udp',srcport,dstport)
+        pkt_tcp = pkt.get_protocol(tcp.tcp)
+        if pkt_tcp:
+            print('Tcp PacketIn')
+            srcport = pkt_tcp.src_port
+            dstport = pkt_tcp.dst_port
+            self.setFlowEntry(src,dst,self.OFPParser,'tcp',srcport,dstport)
+        
+    
+    def setFlowEntry(self,src,dst,parser,type,src_port=NONE,dst_port=NONE):
         print('Routing ','10.0.0.1'+src,' to ','10.0.0.1'+dst)
-        arptodstmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + src, arp_tpa='10.0.0.1'+dst)
-        arptosrcmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + dst, arp_tpa='10.0.0.1'+src)
-        pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.1'+dst)
-        pkttosrcmatch = parser.OFPMatch(eth_type=0x0800, ipv4_dst='10.0.0.1'+src)
+        if type =='udp':
+            pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_src='10.0.0.1'+src, ipv4_dst='10.0.0.1'+dst, ip_proto=17,udp_src=src_port, udp_dst=dst_port)
+            pkttosrcmatch = parser.OFPMatch(eth_type=0x0800, ipv4_src='10.0.0.1'+dst, ipv4_dst='10.0.0.1'+src, ip_proto=17,udp_src=dst_port, udp_dst=src_port)
+        elif type == 'tcp':
+            pkttodstmatch = parser.OFPMatch(eth_type=0x0800, ipv4_src='10.0.0.1'+src, ipv4_dst='10.0.0.1'+dst, ip_proto=6,tcp_src=src_port, tcp_dst=dst_port)
+            pkttosrcmatch = parser.OFPMatch(eth_type=0x0800, ipv4_src='10.0.0.1'+dst, ipv4_dst='10.0.0.1'+src, ip_proto=6,tcp_src=dst_port, tcp_dst=src_port)
+        elif type=='arp':
+            pkttodstmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + src, arp_tpa='10.0.0.1'+dst)
+            pkttosrcmatch = parser.OFPMatch(eth_type=0x0806, arp_spa='10.0.0.1' + dst, arp_tpa='10.0.0.1'+src)
+        
         self.dijk_routing(int(src),int(dst))
         
         step = len(self.path[int(dst)])
@@ -181,8 +209,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                 
             else:
                 action = [parser.OFPActionOutput(port=1)]
-            self.add_flow(self.dplist[i],5,arptodstmatch,action)
-            self.add_flow(self.dplist[i],4,pkttodstmatch,action)
+            self.add_flow(self.dplist[i],5,pkttodstmatch,action)
 
             if count==0:
                 action = [parser.OFPActionOutput(port=1)]
@@ -193,8 +220,8 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                     print('port error')
                 else:
                     action = [parser.OFPActionOutput(port=outport)]
-            self.add_flow(self.dplist[i],5,arptosrcmatch,action)
-            self.add_flow(self.dplist[i],4,pkttosrcmatch,action)
+            self.add_flow(self.dplist[i],5,pkttosrcmatch,action)
+            
 
 
             count +=1
@@ -346,9 +373,9 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
                 #print('port: ',stat.port_no, ' txByte: ',stat.tx_bytes/62500, 'pastTX: ',self.datapathlist[dpid-1].portcost[stat.port_no])
                 if dpid==1 or dpid==2 or dpid==3 or dpid==4:
                     if stat.port_no !=1:
-                        self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/62500) #125M total bandwidth
+                        self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/1250000) 
                 else:
-                    self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes/62500)
+                    self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/1250000)
                 
     def routing_host(self):
         self.setFlowEntry('0','1',self.OFPParser)
@@ -372,7 +399,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         while True:
             for dp in self.dplist.values():
                 self.sned_port_txbyte_req(dp)
-            hub.sleep(5)
+            hub.sleep(1)
             
             '''for i in self.datapathlist:
                 print('dpid:',i.switch)
