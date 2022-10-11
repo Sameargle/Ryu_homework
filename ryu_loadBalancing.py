@@ -370,12 +370,12 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         #print('dpid: ',dpid)
         for stat in ev.msg.body:
             if stat.port_no<10:
-                #print('port: ',stat.port_no, ' txByte: ',stat.tx_bytes/62500, 'pastTX: ',self.datapathlist[dpid-1].portcost[stat.port_no])
+                #print('port: ',stat.port_no, ' txByte: ',(stat.tx_bytes + stat.rx_bytes)/6250000, 'pastValue: ',self.datapathlist[dpid-1].portcost[stat.port_no])
                 if dpid==1 or dpid==2 or dpid==3 or dpid==4:
                     if stat.port_no !=1:
-                        self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/1250000) 
+                        self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/62500000) #12500000
                 else:
-                    self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/1250000)
+                    self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/62500000)
                 
     def routing_host(self):
         self.setFlowEntry('0','1',self.OFPParser)
@@ -399,7 +399,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         while True:
             for dp in self.dplist.values():
                 self.sned_port_txbyte_req(dp)
-            hub.sleep(1)
+            hub.sleep(5)
             
             '''for i in self.datapathlist:
                 print('dpid:',i.switch)
