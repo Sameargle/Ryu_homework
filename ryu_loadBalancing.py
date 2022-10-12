@@ -227,7 +227,8 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
             count +=1
                 
                 
-        return
+        if type =='udp':
+            print('flow seted')
     
     def searchPort(self,Topo):
         portlist={}
@@ -274,8 +275,8 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
             portlist = self.searchPort(self.datapathlist[next])
             for j,i in portlist.items():
                 
-                if self.disarray[i-1] > self.disarray[next]+self.datapathlist[next].portcost[j]:
-                    self.disarray[i-1]=self.disarray[next]+self.datapathlist[next].portcost[j]
+                if self.disarray[i-1] > self.disarray[next]+self.datapathlist[next].portcost[j][0]:
+                    self.disarray[i-1]=self.disarray[next]+self.datapathlist[next].portcost[j][0]
                     self.path[i-1]=self.path[next].copy()
                     self.path[i-1].append(i)
                     #print('update',i,'distance=',self.disarray[next]+1)
@@ -309,7 +310,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
             
         for k,v in self.datapathlist[start].port.items():
             if v!=0:
-                cost = self.datapathlist[start].portcost[k]
+                cost = self.datapathlist[start].portcost[k][0]
                 
                 dijkarray[v-1]= cost
 
@@ -326,10 +327,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
-       
- 
-       
-        
+
         temp = Topo(datapath.id)
         
         self.datapathlist[datapath.id-1]=temp
@@ -367,16 +365,18 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
     def port_stats_reply_handler(self, ev):
         ports = []
         dpid = ev.msg.datapath.id
-        #print('dpid: ',dpid)
+        print('dpid: ',dpid)
         for stat in ev.msg.body:
             if stat.port_no<10:
-                #print('port: ',stat.port_no, ' txByte: ',(stat.tx_bytes + stat.rx_bytes)/6250000, 'pastValue: ',self.datapathlist[dpid-1].portcost[stat.port_no])
+                print('port: ',stat.port_no, ' trxByte: ',stat.rx_bytes + stat.tx_bytes ,'pastTX: ',self.datapathlist[dpid-1].portcost[stat.port_no][1], 'Cost',self.datapathlist[dpid-1].portcost[stat.port_no][0])
                 if dpid==1 or dpid==2 or dpid==3 or dpid==4:
                     if stat.port_no !=1:
-                        self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/62500000) #12500000
+                        self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes + stat.rx_bytes) 
                 else:
-                    self.datapathlist[dpid-1].modportcost(stat.port_no,(stat.tx_bytes + stat.rx_bytes)/62500000)
-                
+                    self.datapathlist[dpid-1].modportcost(stat.port_no,stat.tx_bytes + stat.rx_bytes)
+    
+    
+    #DEPRECATED function 'routing_host'          
     def routing_host(self):
         self.setFlowEntry('0','1',self.OFPParser)
         self.setFlowEntry('0','2',self.OFPParser)
@@ -385,6 +385,9 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         self.setFlowEntry('1','3',self.OFPParser)
         self.setFlowEntry('2','3',self.OFPParser)
         print('----------------------')
+
+    '''
+    '''
 
     def monitor(self):
         while True:
@@ -399,7 +402,7 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         while True:
             for dp in self.dplist.values():
                 self.sned_port_txbyte_req(dp)
-            hub.sleep(5)
+            hub.sleep(1)
             
             '''for i in self.datapathlist:
                 print('dpid:',i.switch)
@@ -411,7 +414,19 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
         
         
         
-        
+'''
+class Topo
+
+This class store switch information which connecting to RYU controller, 
+
+========== =============================================== ===================
+Attribute  Description                                     Example
+========== =============================================== ===================
+swtich     datapath id             
+port       switch's port and which switch it connecting    {1:1,2:2}
+portcost   store port's cost and date traffic(byte)        {1:[100,100000000]}
+==============================================================================
+'''     
         
     
     
@@ -419,7 +434,8 @@ class ryu_shortestPathRouting(app_manager.RyuApp):
 class Topo:
     switch:int
     port:dict
-    portcost:dict
+    portcost:dict  
+    
     def __init__(self,dpid:int):
         self.port={}
         self.portcost={}
@@ -427,11 +443,16 @@ class Topo:
     
     def addport(self,outport,nextdp):
         self.port[outport]=nextdp
-        self.portcost[outport]=0
+        #portcost init
+        self.portcost[outport]=[]
+        self.portcost[outport].append(0)
+        self.portcost[outport].append(0)
+
     def modport(self,outport,nextdp):
         if self.port[outport]==0:
             self.port[outport]=nextdp
-    def modportcost(self,port,cost):
-        temp = int(cost - self.portcost[port])
-        self.portcost[port]=temp
+    def modportcost(self,port,traffic):
+        cost = traffic - self.portcost[port][1]
+        self.portcost[port][0]=int(cost/1250000)       #cost = byte*8 /1000M * 100%
+        self.portcost[port][1] = traffic
         
